@@ -1,0 +1,56 @@
+## Ignore Visual Studio temporary files, build results, etc.
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*servergroups.xml
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+[Pp]ackages/
+x64/
+x86/
+build/
+bld/
+[Bb]in
+[Oo]bj
+[Tt]emp
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NUNIT
+*.VisualState.xml
+TestResult.xml
+
+# Visual Studio profiler
+*.psess
+*.vsp
+*.vspx
+
+# ReSharper is a .NET coding add-in
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+*.DotSettings
+!core.AutoLoad.DotSettings
+
+# Vagrant
+.vagrant/
+/Bin
+/API.TestProject/.vs
+/API.TestProject/API.Tests/libs
+*.ide-shm
+*.lock
+*.ide-wal
+*.ide
+*.dtbcache
+
+# Idea
+.idea/
