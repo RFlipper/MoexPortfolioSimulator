@@ -7,15 +7,15 @@ using MoexPortfolioSimulator.Engine;
 
 namespace MoexPortfolioSimulator.Strategies
 {
-    public class MoexRebalance : StrategiesBase
+    public class MoexMonopoliesRebalanced : StrategiesBase
     {
         private ILog Logger => LogManager.GetLogger(GetType());
         
-        private string[] symbolsNames = {"SBER", "RTKMP", "ROSN", "RSTIP", "GAZP", "GMKN"};
-        private DateTime dateFrom = new DateTime(2009, 01, 01);
+        private string[] symbolsNames = {"SBERP", "RTKMP", "ROSN", "RSTIP", "GAZP", "GMKN"};
+        private DateTime dateFrom = new DateTime(2011, 01, 01);
         private DateTime  dateTo = new DateTime(2019, 01, 01);
-        private decimal startMoney = 720000;
-        private Recharge scheduledRecharge = new Recharge(0, RechargePeriod.Yearly);
+        private decimal startMoney = 1000000;
+        private Recharge scheduledRecharge = new Recharge(1000000, RechargePeriod.Yearly);
         //TODO:ADD INFLATION AND DIVIDENDS
         private int maxPercentForShares = 100;
         private Rebalancing rebalancing;
@@ -24,9 +24,9 @@ namespace MoexPortfolioSimulator.Strategies
         private Account acc;
         private Dictionary<string, Symbol> symbols;
 
-        public MoexRebalance()
+        public MoexMonopoliesRebalanced()
         {
-            symbols = LoadSymbols(symbolsNames, dateFrom, dateTo);
+            symbols = LoadSymbols(symbolsNames, dateFrom, dateTo).Result;
             acc = new Account(startMoney, dateFrom);
             rebalancing = new Rebalancing(maxPercentForShares, RebalancingPeriod.Yearly, dateFrom);
         }
@@ -67,12 +67,13 @@ namespace MoexPortfolioSimulator.Strategies
 
             SellAllShares();
 
-           double annualReturn = Statistics.GetAnnualReturn(startMoney, acc.CurrentMoney, dateFrom, dateTo);
+           double annualReturn = Statistics.GetAnnualReturn(startMoney, acc.CurrentMoney - acc.GetTotalInvestedMoney(), dateFrom, dateTo);
 
             
             Logger.Info($"\nPortfolio value {acc.getCurrentMoneyFormatted()}.\n" +
                         $"Total money invested: {acc.getMoneyFormatted(acc.GetTotalInvestedMoney())}.\n" +
-                        $"Annual return: {Math.Round(annualReturn * 100, 2)}%");
+                        $"Annual return: {Math.Round(annualReturn * 100, 2)}%\n" +
+                        $"Years: {dateTo.Subtract(dateFrom).Days / 365}");
         }
 
         private void SellAllShares()
