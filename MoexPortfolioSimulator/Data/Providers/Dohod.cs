@@ -1,28 +1,49 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading.Tasks;
 using HtmlAgilityPack;
+using log4net;
 using MoexPortfolioSimulator.Helpers;
 
 namespace MoexPortfolioSimulator.Data.Providers
 {
     public class Dohod
     {
+        private static  ILog logger => LogManager.GetLogger(typeof(Dohod));
+
         private static string baseUrl = "https://dohod.ru/ik/analytics/dividend";
         private static string formatDate = "dd.MM.yyyy";
-        
-        public static async Task<List<Dividend>> GetDividendsBySymbol(string symbolName)
+
+        public static async Task<HashSet<Dividend>> GetDividendsBySymbol(Symbol symbol)
         {
-            var divs = new List<Dividend>();
+            var divs = await GetDividendsByCode(symbol.Code);
+            return divs;
+        }
+        
+        public static async Task<HashSet<Dividend>> GetDividendsByCode(string code)
+        {
+            var divs = new HashSet<Dividend>();
             
-            if (string.IsNullOrEmpty(symbolName))
+            if (string.IsNullOrEmpty(code))
             {
                 throw new ApplicationException("Symbol name can't be empty");
             }
 
-            string response = await RequestsHelper.SendGetRequest($"{baseUrl}/{symbolName}");
+            var divsFileName = $"Div_{code}";
+            
+            logger.Info($"Get Dividends for {code}");
+            
+            string response;
+            if (FilesHelper.IsFileExists(divsFileName))
+            {
+                response = FilesHelper.ReadFromFile(divsFileName);
+            }
+            else
+            {
+                response = await RequestsHelper.SendGetRequest($"{baseUrl}/{code.ToLower()}");
+                FilesHelper.SaveToFile(divsFileName, response);
+            }
             
             var doc = new HtmlDocument();
             doc.LoadHtml(response);
@@ -38,7 +59,7 @@ namespace MoexPortfolioSimulator.Data.Providers
                     {
                         continue;
                     }
-                    var date = DateTime.ParseExact(cells[0].InnerText, formatDate, CultureInfo.InvariantCulture);
+                    var date = DateTime.ParseExact(cells[0].InnerText.Trim(), formatDate, CultureInfo.InvariantCulture);
                     var amount = decimal.Parse(cells[2].InnerText.Trim(), CultureInfo.InvariantCulture);
                     var dividend = new Dividend(date, amount);
                     divs.Add(dividend);
