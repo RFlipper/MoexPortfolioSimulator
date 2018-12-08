@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using log4net;
 using MoexPortfolioSimulator.Data;
 
@@ -11,9 +12,9 @@ namespace MoexPortfolioSimulator.Engine
         
         private decimal startMoney;
         public decimal CurrentMoney { get; private set; }
-        private List<Operation> operations = new List<Operation>();
+        public Operations Operations { get; } = new Operations();
         private List<FeeConfiguration> fees = new List<FeeConfiguration>();
-        private Portfolio portfolio = new Portfolio();
+        public Portfolio Portfolio { get; } = new Portfolio();
         
         
 
@@ -23,7 +24,7 @@ namespace MoexPortfolioSimulator.Engine
             this.CurrentMoney = startMoney;
             var oper = new Operation(date, OperationType.Deposit, startMoney);
             logger.Info("New operation: " + oper);
-            operations.Add(oper);
+            Operations.Add(oper);
         }
 
         public void Deposit(decimal moneyAmount, DateTime date)
@@ -31,55 +32,56 @@ namespace MoexPortfolioSimulator.Engine
             CurrentMoney += moneyAmount;
             var oper = new Operation(date, OperationType.Deposit, moneyAmount);
             logger.Info("New operation: " + oper);
-            operations.Add(oper);
+            Operations.Add(oper);
         }
 
 
         public void SellAll(Symbol symbol, DateTime date)
         {
             var quote = symbol.GetDailyQuote(date);
-            var quantity = portfolio.getQuantity(symbol);
+            var quantity = Portfolio.getQuantity(symbol);
 
             var volume = quote.Open * quantity; //TODO ADD FEES
             CurrentMoney += volume;
             var oper = new Operation(date, OperationType.Sell, symbol, quantity, quote.Open, volume);
             logger.Info("New operation: " + oper);
-            operations.Add(oper);
+            Operations.Add(oper);
 
-            portfolio.Remove(symbol, quantity);
+            Portfolio.Remove(symbol, quantity);
         }
 
-        public void Sell(Symbol symbol, decimal money, DateTime date)
+        public Operation Sell(Symbol symbol, decimal money, DateTime date)
         {
             var symbolQuote = symbol.GetDailyQuote(date);
             int quantity = (int) (money / symbolQuote.Open);
             decimal remainder = money - (quantity * symbolQuote.Open);
             decimal volume = quantity * symbolQuote.Open; //TODO: add FEE and LOTS
-            
-            if (quantity > 0)
+            Operation oper = null;
+
+            if (quantity == 0)
             {
-                CurrentMoney += volume;
-                var oper = new Operation(date, OperationType.Sell, symbol, quantity, symbolQuote.Open, volume);
-                logger.Info("New operation: " + oper);
-                operations.Add(oper);
-                portfolio.Remove(symbol, quantity);
-            }else
-            {
-                if (quantity == 0)
-                {
-                    logger.Info($"Not enough money!\nNeed {symbolQuote.Open}, but have {money}");
-                }
-                else
-                {
-                    logger.Info($"Not enough money!\nNeed {volume}, but have {CurrentMoney}");
-                }
+                quantity = 1;
             }
+            
+            CurrentMoney += volume;
+            oper = new Operation(date, OperationType.Sell, symbol, quantity, symbolQuote.Open, volume);
+            logger.Info("New operation: " + oper);
+            Operations.Add(oper);
+            Portfolio.Remove(symbol, quantity);
+            
+            return oper;
         }
 
 
-        public void Buy(Symbol symbol, decimal money, DateTime date)
+        public Operation Buy(Symbol symbol, decimal money, DateTime date)
         {
             var symbolQuote = symbol.GetDailyQuote(date);
+            if (symbolQuote == null)
+            {
+                return null;
+            }
+
+            Operation oper = null;
             int quantity = (int) (money / symbolQuote.Open);
             decimal remainder = money - (quantity * symbolQuote.Open);
             decimal volume = quantity * symbolQuote.Open; //TODO: add FEE and LOTS
@@ -87,10 +89,10 @@ namespace MoexPortfolioSimulator.Engine
             if (quantity > 0 && CurrentMoney >= volume)
             {
                 CurrentMoney -= volume;
-                var oper = new Operation(date, OperationType.Buy, symbol, quantity, symbolQuote.Open, volume);
+                oper = new Operation(date, OperationType.Buy, symbol, quantity, symbolQuote.Open, volume);
                 logger.Info("New operation: " + oper);
-                operations.Add(oper);
-                portfolio.Add(symbol, quantity);
+                Operations.Add(oper);
+                Portfolio.Add(symbol, quantity);
             }else
             {
                 if (quantity == 0)
@@ -102,12 +104,14 @@ namespace MoexPortfolioSimulator.Engine
                     logger.Info($"Not enough money!\nNeed {volume}, but have {CurrentMoney}");
                 }
             }
+
+            return oper;
         }
 
         public decimal GetPortfolioValue(DateTime currentDate)
         {
             decimal totalValue = 0;
-            foreach (KeyValuePair<Symbol,long> pair in portfolio.Storage)
+            foreach (KeyValuePair<Symbol,long> pair in Portfolio.Storage)
             {
                 Quote quote = pair.Key.GetDailyQuote(currentDate);
                 totalValue += quote.Open * pair.Value;
@@ -121,63 +125,69 @@ namespace MoexPortfolioSimulator.Engine
         public decimal GetTotalInvestedMoney()
         {
             decimal totalMoney = 0;
-            foreach (Operation operation in operations)
+            foreach (Operation operation in Operations)
             {
-                if (operation.operationType == OperationType.Deposit)
+                if (operation.OperationType == OperationType.Deposit)
                 {
-                    totalMoney += operation.amount;
+                    totalMoney += operation.Amount;
                 }
             }
 
             return totalMoney;
         }
+
+        public void Rebalance(Symbol symbol, Rebalancing rebalancing, DateTime currentDate)
+        {
+            Rebalance(new List<Symbol> {symbol}, rebalancing, currentDate);
+        }
         
         public void Rebalance(List<Symbol> symbols, Rebalancing reb, DateTime currentDate)
         {
-            logger.Info("Start rebalancing");
+            logger.Info($"{currentDate} START REBALANCING");
             decimal money = CurrentMoney + GetPortfolioValue(currentDate);
 
             logger.Debug("Total account value " + money);
 
-            decimal totalMoneyToSpend = money / 100 * reb.MaxPercentForShare;
-            logger.Debug("Total money to spend " + totalMoneyToSpend);
-
-            decimal moneyForEachSymbol = totalMoneyToSpend / symbols.Count; // There is a rebalancing issue, when we have to sell some stocks but can't because of big lot or share price
+            decimal moneyForEachSymbol = money / 100 * reb.MaxPercentForShare; // There is a rebalancing issue, when we have to sell some stocks but can't because of big lot or share price
             logger.Debug("Money for each symbol " + moneyForEachSymbol);
 
 
             //sell cycle
             foreach (Symbol symbol in symbols)
             {
-                logger.Debug("Sell balancing cycle for " + symbol.SymbolName);
+                logger.Debug("Sell balancing cycle for " + symbol.Code);
                 var symbolQuote = symbol.GetDailyQuote(currentDate);
-                long quantity = portfolio.getQuantity(symbol);
+                long quantity = Portfolio.getQuantity(symbol);
                 decimal sharesCost = quantity * symbolQuote.Open;
-                logger.Debug($"Cost of {symbol.SymbolName}: " + sharesCost);
+                logger.Debug($"Cost of {symbol.Code}: " + sharesCost);
 
                 var moneyForTrade = (long) (moneyForEachSymbol - sharesCost);
                 logger.Debug("Money for trade: " + moneyForTrade);
 
-                if (moneyForTrade < 0)
+                if (moneyForTrade < 0 && moneyForTrade < symbolQuote.Open)
                 {
-                    logger.Debug("Current cash: " + getCurrentMoneyFormatted());
-                    Sell(symbol, Math.Abs(moneyForTrade), currentDate);
-                    logger.Debug("Current cash: " + getCurrentMoneyFormatted());
+                    logger.Debug("Current cash: " + GetCurrentMoneyFormatted());
+                    Operation oper = Sell(symbol, Math.Abs(moneyForTrade), currentDate);
+                    if (oper != null)
+                    {
+                        oper.isRebalanced = true;
+                    }
+                    logger.Debug("Current cash: " + GetCurrentMoneyFormatted());
                 }
                 else
                 {
-                    logger.Info($"No needed to Sell {symbol.SymbolName}");
+                    logger.Info($"No needed to Sell {symbol.Code}");
                 }
             }
             
             //buy cycle
             foreach (Symbol symbol in symbols)
             {
-                logger.Debug("Buy balancing cycle for " + symbol.SymbolName);
+                logger.Debug("Buy balancing cycle for " + symbol.Code);
                 var symbolQuote = symbol.GetDailyQuote(currentDate);
-                long quantity = portfolio.getQuantity(symbol);
+                long quantity = Portfolio.getQuantity(symbol);
                 decimal sharesCost = quantity * symbolQuote.Open;
-                logger.Debug($"Cost of {symbol.SymbolName}: " + sharesCost);
+                logger.Debug($"Cost of {symbol.Code}: " + sharesCost);
 
                 decimal moneyForTrade = moneyForEachSymbol - sharesCost;
                 logger.Debug("Money for trade: " + moneyForTrade);
@@ -190,25 +200,29 @@ namespace MoexPortfolioSimulator.Engine
                         moneyForTrade = moneyForTrade - (moneyForTrade - CurrentMoney);
                     }
                     
-                    logger.Debug("Current cash: " + getCurrentMoneyFormatted());
-                    Buy(symbol, moneyForTrade, currentDate);
-                    logger.Debug("Current cash: " + getCurrentMoneyFormatted());
+                    logger.Debug("Current cash: " + GetCurrentMoneyFormatted());
+                    Operation operation = Buy(symbol, moneyForTrade, currentDate);
+                    if (operation != null)
+                    {
+                        operation.isRebalanced = true;
+                    }
+                    logger.Debug("Current cash: " + GetCurrentMoneyFormatted());
                 }
                 else
                 {
-                    logger.Info($"No needed to Buy {symbol.SymbolName}");
+                    logger.Info($"No needed to Buy {symbol.Code}");
                 }
             }
             
-            logger.Info("End rebalancing. Cash: " + getCurrentMoneyFormatted());
+            logger.Info($"{currentDate} END REBALANCING. CASH: " + GetCurrentMoneyFormatted());
         }
 
-        public string getCurrentMoneyFormatted()
+        public string GetCurrentMoneyFormatted()
         {
-            return getMoneyFormatted(CurrentMoney);
+            return GetMoneyFormatted(CurrentMoney);
         }
         
-        public string getMoneyFormatted(decimal money)
+        public string GetMoneyFormatted(decimal money)
         {
             return $"{money:C}";
         }
@@ -217,10 +231,10 @@ namespace MoexPortfolioSimulator.Engine
         {
             if (tradeSchedule == TradeSchedule.Yearly)
             {
-                foreach (Operation operation in operations)
+                foreach (Operation operation in Operations)
                 {
                     if (operation.OperationDate.Year == dateTime.Year && 
-                        (operation.operationType == OperationType.Buy || operation.operationType == OperationType.Sell))
+                        (operation.OperationType == OperationType.Buy || operation.OperationType == OperationType.Sell))
                     {
                         return true;
                     }
@@ -229,11 +243,42 @@ namespace MoexPortfolioSimulator.Engine
             
             if (tradeSchedule == TradeSchedule.Monthly)
             {
-                foreach (Operation operation in operations)
+                foreach (Operation operation in Operations)
                 {
                     if (operation.OperationDate.Month == dateTime.Month &&
                         operation.OperationDate.Year == dateTime.Year &&
-                       (operation.operationType == OperationType.Buy || operation.operationType == OperationType.Sell))
+                       (operation.OperationType == OperationType.Buy || operation.OperationType == OperationType.Sell))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        public bool ThereWereTradesThisPeriod(DateTime dateTime, TradeSchedule tradeSchedule, Symbol symbol)
+        {
+            if (tradeSchedule == TradeSchedule.Yearly)
+            {
+                foreach (Operation operation in Operations)
+                {
+                    if (operation.OperationDate.Year == dateTime.Year && 
+                       (operation.OperationType == OperationType.Buy || operation.OperationType == OperationType.Sell) &&
+                        operation.SymbolCode.Equals(symbol.Code) && operation.isRebalanced == false)
+                    {
+                        return true;
+                    }
+                }
+            }
+            
+            if (tradeSchedule == TradeSchedule.Monthly)
+            {
+                foreach (Operation operation in Operations)
+                {
+                    if (operation.OperationDate.Month == dateTime.Month &&
+                        operation.OperationDate.Year == dateTime.Year &&
+                        (operation.OperationType == OperationType.Buy || operation.OperationType == OperationType.Sell) &&
+                        operation.SymbolCode.Equals(symbol.Code) && operation.isRebalanced == false)
                     {
                         return true;
                     }
@@ -246,10 +291,10 @@ namespace MoexPortfolioSimulator.Engine
         {
             if (rechargePeriod == RechargePeriod.Yearly)
             {
-                foreach (Operation operation in operations)
+                foreach (Operation operation in Operations)
                 {
                     if (operation.OperationDate.Year == dateTime.Year &&
-                        operation.operationType == OperationType.Deposit)
+                        operation.OperationType == OperationType.Deposit)
                     {
                         return true;
                     }
@@ -258,11 +303,11 @@ namespace MoexPortfolioSimulator.Engine
             
             if (rechargePeriod == RechargePeriod.Monthly)
             {
-                foreach (Operation operation in operations)
+                foreach (Operation operation in Operations)
                 {
                     if (operation.OperationDate.Month == dateTime.Month &&
                         operation.OperationDate.Year == dateTime.Year &&
-                        operation.operationType == OperationType.Deposit)
+                        operation.OperationType == OperationType.Deposit)
                     {
                         return true;
                     }
@@ -270,7 +315,42 @@ namespace MoexPortfolioSimulator.Engine
             }
             return false;
         }
-        
-        
+
+
+        public void PayDividends(DateTime currentDate, List<Symbol> symbols)
+        {
+            foreach (Symbol symbol in symbols)
+            {
+                List<Dividend> dividends = symbol.Dividends.Where(s => s.Date.Date.Equals(currentDate)).ToList();
+                
+                if (dividends.Count > 0)
+                {
+                    if (PayDividend(currentDate, dividends.First(), symbol))
+                    {
+                        symbol.Dividends.Remove(dividends.First());
+ 
+                    }
+                }
+            }
+        }
+
+        private bool PayDividend(DateTime currentDate, Dividend dividend, Symbol symbol)
+        {
+            long quantity = Portfolio.getQuantity(symbol);
+
+            if (quantity == 0)
+            {
+                return false;
+            }
+
+            decimal amount = quantity * dividend.Amount;
+
+            logger.Info($"{currentDate} PAID DIVIDENDS FOR {symbol.Code} {amount}");
+            Operation oper = new Operation(currentDate, OperationType.Dividends, amount, symbol);
+            logger.Info("New operation: " + oper);
+            Operations.Add(oper);
+            CurrentMoney += amount;
+            return true;
+        }
     }
 }

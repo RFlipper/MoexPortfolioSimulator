@@ -8,7 +8,7 @@ namespace MoexPortfolioSimulator.Strategies
 {
     public class StrategiesBase
     {
-        protected static async Task<Dictionary<string, Symbol>> LoadSymbols(string[] symbolsNames, DateTime dateFrom, DateTime dateTo)
+        protected static async Task<Dictionary<string, Symbol>> LoadSymbols(string[] symbolsNames, DateTime dateFrom, DateTime dateTo, FinamDataPeriod period)
         {
             var resultMap = new Dictionary<string, Symbol>();
             
@@ -16,8 +16,9 @@ namespace MoexPortfolioSimulator.Strategies
             
             foreach (string symbolName in symbolsNames)
             {
-                var symbol = new Symbol(symbolName, dateFrom, dateTo);
+                var symbol = new Symbol(symbolName, dateFrom, dateTo, period);
                 symbol.Quotes = await finam.LoadQuotes(symbol);
+                symbol.Dividends = await Dohod.GetDividendsBySymbol(symbol);
 
                 resultMap.Add(symbolName, symbol);
             }

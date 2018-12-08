@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using log4net;
+using MoexPortfolioSimulator.Data;
 
 namespace MoexPortfolioSimulator.Engine
 {
@@ -7,39 +9,57 @@ namespace MoexPortfolioSimulator.Engine
     {
         private static ILog logger => LogManager.GetLogger(typeof(Rebalancing));
 
-        private RebalancingPeriod period;
-        public int MaxPercentForShare { get; }
-        private DateTime _lastRebalancingDate;
+        public RebalancingPeriod Period{ get; }
+        public decimal MaxPercentForShare { get; }
+        private readonly DateTime _initDate;
 
-        public Rebalancing(int maxPercentForShare, RebalancingPeriod period, DateTime initDate)
+        public Rebalancing(decimal maxPercentForShare, RebalancingPeriod period, DateTime initDate)
         {
             this.MaxPercentForShare = maxPercentForShare;
-            this.period = period;
-            _lastRebalancingDate = initDate;
+            this.Period = period;
+            this._initDate = initDate;
         }
 
-        public bool IsRebalanceNeeded(DateTime currentDate)
+        public bool IsRebalancingNeeded(DateTime currentDate, Symbol symbol, Operations operations)
         {
-            //logger.Debug("current rebalance date " + _lastRebalancingDate);
-            var nextRebalancingDate = _lastRebalancingDate;
-            //logger.Debug("next rebalance date " + nextRebalancingDate);
+            Operations rOps = operations.GetAllRebalancingOperations(symbol);
 
-            if (period == RebalancingPeriod.Yearly)
+            DateTime rebDate = _initDate;
+
+            if (rOps.Count > 0)
             {
-                nextRebalancingDate = nextRebalancingDate.AddYears(1);
+                rebDate = rOps.GetLatestOperation().OperationDate;
             }
-            if (nextRebalancingDate <= currentDate)
+            
+            switch (Period)
             {
-                return true;
+                case RebalancingPeriod.Yearly:
+                {
+                    if (rebDate.AddYears(1) <= currentDate)
+                    {
+                        return true;
+                    }
+
+                    break;
+                }
+                case RebalancingPeriod.Monthly:
+                {
+                    if (rebDate.AddMonths(1) <= currentDate)
+                    {
+                        return true;
+                    }
+
+                    break;
+                }
+                case RebalancingPeriod.ByDividends:
+                    break;
+                case RebalancingPeriod.ByDividendsAndCoupons:
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
             }
 
             return false;
-        }
-
-        public DateTime LastRebalancingDate
-        {
-            get { return _lastRebalancingDate; }
-            set { _lastRebalancingDate = value; }
         }
     }
 
