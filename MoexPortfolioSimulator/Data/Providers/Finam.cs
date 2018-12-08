@@ -12,7 +12,6 @@ namespace MoexPortfolioSimulator.Data.Providers
 {
     public class Finam
     {
-        private static readonly HttpClient client = new HttpClient();
         public static List<FinamSecurity> securities = new List<FinamSecurity>();
         private ILog logger => LogManager.GetLogger(GetType());
         public Dictionary<Symbol, HashSet<Quote>> loadedSecurities = new Dictionary<Symbol, HashSet<Quote>>();
@@ -22,11 +21,10 @@ namespace MoexPortfolioSimulator.Data.Providers
         {
             if (securities.Count == 0)
             {
-                securities = GetSecuritiesList();
+                securities = await GetSecuritiesList();
             }
 
             int marketId = 1;
-           
             
             var localDateFrom = symbol.InitDateFrom;
             var localDateTo = symbol.InitDateTo;
@@ -47,7 +45,7 @@ namespace MoexPortfolioSimulator.Data.Providers
                 }
 
                 int em = GetSecurityCode(symbol, marketId);
-                HashSet<Quote> quotes = await GetQuotes(symbol, marketId, em, localDateFrom, localDateTo, FinamDataPeriod.Monthly);
+                HashSet<Quote> quotes = await GetQuotes(symbol, marketId, em, localDateFrom, localDateTo, symbol.timeFrame);
 
                 if (loadedSecurities.ContainsKey(symbol))
                 {
@@ -67,31 +65,21 @@ namespace MoexPortfolioSimulator.Data.Providers
         {
             foreach (FinamSecurity security in securities)
             {
-                if (security.Code == $"'{symbol.SymbolName}'" && int.Parse(security.MarketId) == marketId)
+                if (security.Code == $"'{symbol.Code}'" && int.Parse(security.MarketId) == marketId)
                 {
                     return int.Parse(security.Id);
                 }
             }
             
-            throw new ApplicationException($"Can't find symbol {symbol.SymbolName} in Finam list");
+            throw new ApplicationException($"Can't find symbol {symbol.Code} in Finam list");
         }
 
         private async Task<HashSet<Quote>> GetQuotes(Symbol symbol, int marketId, int em, DateTime dateFrom, DateTime dateTo, FinamDataPeriod period)
         {
             HashSet<Quote> resultSet = new HashSet<Quote>();
-            string rawDataQuotes;
-            string rawDataQuotesFromFile = GetRawDataQuotesFromFile(symbol, marketId, em, dateFrom, dateTo, period);
-            rawDataQuotes = rawDataQuotesFromFile;
             
-            if (string.IsNullOrEmpty(rawDataQuotesFromFile))
-            {
-                string rawDataQuotesFromServer = await GetRawDataQuotesFromServer(symbol, marketId, em, dateFrom, dateTo, period);
-                rawDataQuotes = rawDataQuotesFromServer;
-                AppendResponseToFile(symbol, rawDataQuotesFromServer, period);
-            }
-
-            resultSet.UnionWith(ExtractQuotes(rawDataQuotes));
-            
+            HashSet<Quote> quotesFromFile = GetQuotesFromFile(symbol, marketId, em, dateFrom, dateTo, period);
+            resultSet.UnionWith(quotesFromFile);        
 
             var lastQuoteDate = dateFrom;
             foreach (Quote quote in resultSet)
@@ -104,9 +92,25 @@ namespace MoexPortfolioSimulator.Data.Providers
 
             if (lastQuoteDate < dateTo)
             {
+                if (period == FinamDataPeriod.Monthly)
+                {
+                    if (dateTo.Subtract(lastQuoteDate).Days < 30)
+                    {
+                        return resultSet;
+                    }
+                }
+
+                if (period == FinamDataPeriod.Daily)
+                {
+                    if (dateTo.Subtract(lastQuoteDate).Days < 5)
+                    {
+                        return resultSet;
+                    }
+                }
+                
                 string rawDataQuotesFromServer = await GetRawDataQuotesFromServer(symbol, marketId, em, lastQuoteDate, dateTo, period);
                 AppendResponseToFile(symbol, rawDataQuotesFromServer, period);
-                resultSet.UnionWith(ExtractQuotes(rawDataQuotes));
+                resultSet.UnionWith(ExtractQuotes(rawDataQuotesFromServer));
             }
             
             return resultSet;
@@ -133,38 +137,39 @@ namespace MoexPortfolioSimulator.Data.Providers
 
         private async Task<string> GetRawDataQuotesFromServer(Symbol symbol, int marketId, int em, DateTime dateFrom, DateTime dateTo, FinamDataPeriod period)
         {
-            string url = PrepareGetQuotesRequest(symbol.SymbolName, marketId, em, period, dateFrom, dateTo);
+            string url = PrepareGetQuotesRequest(symbol.Code, marketId, em, period, dateFrom, dateTo);
             string rawDataQuotes = await RequestsHelper.SendGetRequest(url);
 
             logger.Debug("Response from Finam is:\n" + rawDataQuotes);
-            Thread.Sleep(2000);
+            await Task.Delay(5000);
             
             return rawDataQuotes;
         }
         
-        private string GetRawDataQuotesFromFile(Symbol symbol, int marketId, int em, DateTime dateFrom, DateTime dateTo, FinamDataPeriod period)
+        private HashSet<Quote> GetQuotesFromFile(Symbol symbol, int marketId, int em, DateTime dateFrom, DateTime dateTo, FinamDataPeriod period)
         {
-            string fileName = $"resources\\{symbol.SymbolName}_{period}.txt";
+            string fileName = $"{symbol.Code}_{period}";
             
-            if (!File.Exists(fileName)) return null;
+            if (!FilesHelper.IsFileExists(fileName)) return new HashSet<Quote>();
             
-            StringBuilder resultText = new StringBuilder();
-            string text = File.ReadAllText(fileName);
+            HashSet<Quote> quotes = new HashSet<Quote>();
+            string text = FilesHelper.ReadFromFile(fileName);
             foreach (string s in text.Split('\n'))
             {
                 if (s == "")
                 {
                     continue;
                 }
+                
                 var quote = new Quote(s);
                 if (quote.Date >= dateFrom.Date && quote.Date <= dateTo.Date)
                 {
-                    resultText.Append(s.Replace('\r', '\n'));
+                    quotes.Add(quote);
                 }
             }
 
-            logger.Debug("Loaded quotes from file: \n" + resultText.ToString());
-            return resultText.ToString();
+            logger.Debug($"Loaded quotes from file: {symbol.Code} {dateFrom} - {dateTo} {period}");
+            return quotes;
         }
 
         private static void AppendResponseToFile(Symbol symbol, string rawDataQuotes, FinamDataPeriod period)
@@ -176,13 +181,12 @@ namespace MoexPortfolioSimulator.Data.Providers
                 throw new ApplicationException("Error " + dataLines[0]);
             }
 
-            System.IO.Directory.CreateDirectory("resources");
-            System.IO.File.AppendAllText($"resources\\{symbol.SymbolName}_{period}.txt", rawDataQuotes);
+            FilesHelper.AppendToFile($"{symbol.Code}_{period}", rawDataQuotes);
         }
 
         public string PrepareGetQuotesRequest(string symbolName, int marketId, int em, FinamDataPeriod period, DateTime partDateFrom, DateTime partDateTo)
         {
-            string request = $"http://export.finam.ru/" +
+            return $"http://export.finam.ru/" +
                              $"{symbolName}_{partDateFrom.ToString("yyMMdd")}_{partDateTo.ToString("yyMMdd")}.txt?" +
                              $"market={marketId}&" +
                              $"em={em}&" +
@@ -201,18 +205,25 @@ namespace MoexPortfolioSimulator.Data.Providers
                              $"cn={symbolName}&" +
                              $"dtf=1&" +
                              $"tmf=1&" +
-                             "MSOR=1&mstime=on&mstimever=1&sep=1&sep2=1&datf=1";
-            
-            logger.Debug("Request to Finam is:\n" + request);
-            return request;
+                             "MSOR=1&mstime=on&mstimever=1&sep=1&sep2=1&datf=1";            
         }
 
-        public List<FinamSecurity> GetSecuritiesList()
+        public async Task<List<FinamSecurity>> GetSecuritiesList()
         {
+            const string securitiesFileName = "Finam-securities-list";
+            
             logger.Info("Get Finam Securities List");
-            HttpResponseMessage responseMessage = client.GetAsync("https://www.finam.ru/cache/icharts/icharts.js").Result;
-            responseMessage.EnsureSuccessStatusCode();
-            string response = responseMessage.Content.ReadAsStringAsync().Result;
+            
+            string response;
+            if (FilesHelper.IsFileExists(securitiesFileName))
+            {
+                response = FilesHelper.ReadFromFile(securitiesFileName);
+            }
+            else
+            {
+                response = await RequestsHelper.SendGetRequest("https://www.finam.ru/cache/icharts/icharts.js");
+                FilesHelper.SaveToFile(securitiesFileName, response);
+            }
 
             string[] arraySets = response.Split('=');
             string[] arrayIds = arraySets[1].Split('[')[1].Split(']')[0].Split(',');
