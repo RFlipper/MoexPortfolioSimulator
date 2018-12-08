@@ -1,4 +1,4 @@
-namespace MoexPortfolioSimulator.Data
+namespace MoexPortfolioSimulator.Data.Providers
 {
 
     public class FinamSecurity

@@ -4,9 +4,11 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using log4net;
+using MoexPortfolioSimulator.Helpers;
 
-namespace MoexPortfolioSimulator.Data
+namespace MoexPortfolioSimulator.Data.Providers
 {
     public class Finam
     {
@@ -16,7 +18,7 @@ namespace MoexPortfolioSimulator.Data
         public Dictionary<Symbol, HashSet<Quote>> loadedSecurities = new Dictionary<Symbol, HashSet<Quote>>();
 
 
-        public HashSet<Quote> LoadQuotes(Symbol symbol)
+        public async Task<HashSet<Quote>> LoadQuotes(Symbol symbol)
         {
             if (securities.Count == 0)
             {
@@ -45,7 +47,7 @@ namespace MoexPortfolioSimulator.Data
                 }
 
                 int em = GetSecurityCode(symbol, marketId);
-                HashSet<Quote> quotes = GetQuotes(symbol, marketId, em, localDateFrom, localDateTo, FinamDataPeriod.Monthly);
+                HashSet<Quote> quotes = await GetQuotes(symbol, marketId, em, localDateFrom, localDateTo, FinamDataPeriod.Monthly);
 
                 if (loadedSecurities.ContainsKey(symbol))
                 {
@@ -74,7 +76,7 @@ namespace MoexPortfolioSimulator.Data
             throw new ApplicationException($"Can't find symbol {symbol.SymbolName} in Finam list");
         }
 
-        private HashSet<Quote> GetQuotes(Symbol symbol, int marketId, int em, DateTime dateFrom, DateTime dateTo, FinamDataPeriod period)
+        private async Task<HashSet<Quote>> GetQuotes(Symbol symbol, int marketId, int em, DateTime dateFrom, DateTime dateTo, FinamDataPeriod period)
         {
             HashSet<Quote> resultSet = new HashSet<Quote>();
             string rawDataQuotes;
@@ -83,7 +85,7 @@ namespace MoexPortfolioSimulator.Data
             
             if (string.IsNullOrEmpty(rawDataQuotesFromFile))
             {
-                string rawDataQuotesFromServer = GetRawDataQuotesFromServer(symbol, marketId, em, dateFrom, dateTo, period);
+                string rawDataQuotesFromServer = await GetRawDataQuotesFromServer(symbol, marketId, em, dateFrom, dateTo, period);
                 rawDataQuotes = rawDataQuotesFromServer;
                 AppendResponseToFile(symbol, rawDataQuotesFromServer, period);
             }
@@ -102,7 +104,7 @@ namespace MoexPortfolioSimulator.Data
 
             if (lastQuoteDate < dateTo)
             {
-                string rawDataQuotesFromServer = GetRawDataQuotesFromServer(symbol, marketId, em, lastQuoteDate, dateTo, period);
+                string rawDataQuotesFromServer = await GetRawDataQuotesFromServer(symbol, marketId, em, lastQuoteDate, dateTo, period);
                 AppendResponseToFile(symbol, rawDataQuotesFromServer, period);
                 resultSet.UnionWith(ExtractQuotes(rawDataQuotes));
             }
@@ -129,12 +131,11 @@ namespace MoexPortfolioSimulator.Data
             return resultSet;
         }
 
-        private string GetRawDataQuotesFromServer(Symbol symbol, int marketId, int em, DateTime dateFrom, DateTime dateTo, FinamDataPeriod period)
+        private async Task<string> GetRawDataQuotesFromServer(Symbol symbol, int marketId, int em, DateTime dateFrom, DateTime dateTo, FinamDataPeriod period)
         {
-            HttpResponseMessage responseMessage = client
-                .GetAsync(this.PrepareGetQuotesRequest(symbol.SymbolName, marketId, em, period, dateFrom,
-                    dateTo)).Result;
-            string rawDataQuotes = responseMessage.Content.ReadAsStringAsync().Result;
+            string url = PrepareGetQuotesRequest(symbol.SymbolName, marketId, em, period, dateFrom, dateTo);
+            string rawDataQuotes = await RequestsHelper.SendGetRequest(url);
+
             logger.Debug("Response from Finam is:\n" + rawDataQuotes);
             Thread.Sleep(2000);
             
