@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using MoexPortfolioSimulator.Data;
+using MoexPortfolioSimulator.Data.Providers;
 
 namespace MoexPortfolioSimulator.Strategies
 {
     public class StrategiesBase
     {
-        protected Dictionary<string, Symbol> LoadSymbols(string[] symbolsNames, DateTime dateFrom, DateTime dateTo)
+        protected static async Task<Dictionary<string, Symbol>> LoadSymbols(string[] symbolsNames, DateTime dateFrom, DateTime dateTo)
         {
             var resultMap = new Dictionary<string, Symbol>();
             
@@ -15,7 +17,7 @@ namespace MoexPortfolioSimulator.Strategies
             foreach (string symbolName in symbolsNames)
             {
                 var symbol = new Symbol(symbolName, dateFrom, dateTo);
-                symbol.Quotes = finam.LoadQuotes(symbol);
+                symbol.Quotes = await finam.LoadQuotes(symbol);
 
                 resultMap.Add(symbolName, symbol);
             }

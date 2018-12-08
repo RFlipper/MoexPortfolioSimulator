@@ -13,7 +13,7 @@ namespace MoexPortfolioSimulator
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
             XmlConfigurator.Configure();
-            new MoexRebalance().Run();
+            new MoexMonopoliesRebalanced().Run();
         }
     }
 }
