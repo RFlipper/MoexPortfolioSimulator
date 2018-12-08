@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using log4net;
+using MoexPortfolioSimulator.Data.Providers;
 
 namespace MoexPortfolioSimulator.Data
 {
@@ -11,21 +11,31 @@ namespace MoexPortfolioSimulator.Data
         private ILog logger => LogManager.GetLogger(GetType());
 
        
-        public string SymbolName { get; }
+        public string Code { get; }
+        public string shortName { get; }
         public DateTime InitDateTo { get; }
         public DateTime InitDateFrom { get; }
+        public FinamDataPeriod timeFrame { get; }
         public int LotSize { get; }
-        private static readonly HttpClient client = new HttpClient();
         public HashSet<Quote> Quotes { get; set; } = new HashSet<Quote>();
+        public HashSet<Dividend> Dividends { get; set; } = new HashSet<Dividend>();
 
 
-        public Symbol(string symbol, DateTime dateFrom,  DateTime dateTo)
+        public Symbol(string symbol, DateTime dateFrom,  DateTime dateTo, FinamDataPeriod timeFrame)
         {
-            this.SymbolName = symbol;
+            this.Code = symbol;
             this.InitDateTo = dateTo;
+            this.timeFrame = timeFrame;
             this.InitDateFrom = dateFrom;
         }
         
+        
+        /// <summary>
+        /// Get Quote for particular Date. It use only Date value, e.g. "12.12.2018'
+        /// </summary>
+        /// <param name="date"></param>
+        /// <returns></returns>
+        /// <exception cref="ApplicationException"></exception>
         public Quote GetDailyQuote(DateTime date)
         {
             foreach (Quote symbolQuote in Quotes)
@@ -35,10 +45,14 @@ namespace MoexPortfolioSimulator.Data
                     return symbolQuote;
                 }
             }
-            
-            throw new ApplicationException($"Can't find quote for {date} {SymbolName}");
+            //logger.Debug($"Can't find quote for {date} {Code}");
+            return null;            
         }
         
+        /// <summary>
+        /// Get latest available Quote for the symbol. It use only Date value, e.g. "12.12.2018'
+        /// </summary>
+        /// <returns></returns>
         public Quote GetLastDailyQuote()
         {
             Quote last = Quotes.First();
@@ -55,7 +69,7 @@ namespace MoexPortfolioSimulator.Data
 
         protected bool Equals(Symbol other)
         {
-            return string.Equals(SymbolName, other.SymbolName) && InitDateTo.Equals(other.InitDateTo) && InitDateFrom.Equals(other.InitDateFrom) && LotSize == other.LotSize && Equals(Quotes, other.Quotes);
+            return string.Equals(Code, other.Code) && InitDateTo.Equals(other.InitDateTo) && InitDateFrom.Equals(other.InitDateFrom) && LotSize == other.LotSize && Equals(Quotes, other.Quotes);
         }
 
         public override bool Equals(object obj)
@@ -70,7 +84,7 @@ namespace MoexPortfolioSimulator.Data
         {
             unchecked
             {
-                int hashCode = (SymbolName != null ? SymbolName.GetHashCode() : 0);
+                int hashCode = (Code != null ? Code.GetHashCode() : 0);
                 hashCode = (hashCode * 397) ^ InitDateTo.GetHashCode();
                 hashCode = (hashCode * 397) ^ InitDateFrom.GetHashCode();
                 hashCode = (hashCode * 397) ^ LotSize;
@@ -81,7 +95,7 @@ namespace MoexPortfolioSimulator.Data
 
         public override string ToString()
         {
-            return $"{nameof(SymbolName)}: {SymbolName}, {nameof(InitDateTo)}: {InitDateTo}, {nameof(InitDateFrom)}: {InitDateFrom}";
+            return $"{nameof(Code)}: {Code}, {nameof(InitDateTo)}: {InitDateTo}, {nameof(InitDateFrom)}: {InitDateFrom}";
         }
     }
 }
