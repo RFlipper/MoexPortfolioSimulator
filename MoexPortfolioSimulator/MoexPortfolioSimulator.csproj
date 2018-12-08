@@ -78,11 +78,14 @@
     <Compile Include="Engine\FeeConfiguration.cs" />
     <Compile Include="Engine\Inflation.cs" />
     <Compile Include="Engine\Operation.cs" />
+    <Compile Include="Engine\Operations.cs" />
     <Compile Include="Engine\Portfolio.cs" />
     <Compile Include="Engine\Rebalancing.cs" />
     <Compile Include="Engine\Recharge.cs" />
     <Compile Include="Engine\Statistics.cs" />
     <Compile Include="Engine\TradeSchedule.cs" />
+    <Compile Include="Helpers\DateTimeExtensions.cs" />
+    <Compile Include="Helpers\FilesHelper.cs" />
     <Compile Include="Helpers\RequestsHelper.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
